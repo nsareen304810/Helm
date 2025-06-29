@@ -1,0 +1,41 @@
+
+pipeline {
+  agent any
+  environment {
+    IMAGE = "quay.io/your-org/airflow-custom:latest"
+    DOCKER_REGISTRY_CREDENTIALS = credentials('quay-credentials')
+  }
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+    stage('Build Docker Image') {
+      steps {
+        script {
+          sh 'docker build -t $IMAGE .'
+        }
+      }
+    }
+    stage('Push Docker Image') {
+      steps {
+        script {
+          sh 'echo $DOCKER_REGISTRY_CREDENTIALS_PSW | docker login quay.io -u $DOCKER_REGISTRY_CREDENTIALS_USR --password-stdin'
+          sh 'docker push $IMAGE'
+        }
+      }
+    }
+    stage('Deploy to OpenShift') {
+      steps {
+        script {
+          openshift.withCluster() {
+            openshift.withProject('airflow') {
+              sh 'oc apply -f openshift/airflow-deployment.yaml'
+            }
+          }
+        }
+      }
+    }
+  }
+}
