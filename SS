@@ -1,0 +1,107 @@
+Manage single sign-on (SSO)
+26 days ago Updated
+In this article: 
+
+Set up SSO 
+Connect your apps 
+Require SSO
+Troubleshooting
+Addepar offers two main ways to keep accounts safe:
+
+Single sign-on (SSO)
+Two-factor authentication (2FA)
+SSO is like a master key that unlocks all of your apps with just one password. It verifies your credentials via an SSO provider. That way, you only need one username and password to sign in to different apps. Basically, it offers faster and more secure sign-ins.
+
+Before you start 
+Choose your SSO provider. Popular options include Okta and Microsoft Entra ID. 
+Ensure your SSO provider uses SAML 2.0.
+Addepar supports both IdP-initiated and SP-initiated SSO: 
+IdP-initiated: Users sign in through your SSO provider. Note: Not available for Addepar Mobile, only web sign in. 
+SP-initiated: Users sign in with your firm's Addepar URL (https://<firm>.addepar.com/). After entering an email, they'll be redirected to your SSO provider to finish signing in.
+Set up SSO 
+Your firm’s IT department will need to establish a connection between Addepar and your SSO provider. To exchange user credentials safely, Addepar uses SAML 2.0—a secure markup language used for authentication. 
+
+To set up SSO, provide the following information about Addepar to your SSO provider: 
+
+Production 
+
+Assertion Consumer Service URL: https://sso.addepar.com/sp/ACS.saml2                           
+Entity ID: https://sso.addepar.com 
+Sandbox 
+
+Assertion Consumer Service URL: https://sso.sandbox.addepar.com/sp/ACS.saml2 
+Entity ID: https://sso.sandbox.addepar.com 
+Connect your apps 
+After you’ve given the setup information to your provider, you’ll need to share details about your SSO settings with Addepar. This will establish a connection between both platforms so they can communicate.
+
+
+To connect your apps, collect the following information from your SSO provider:
+
+SAML metadata file: This file has the details needed to pass data securely between platforms. 
+Signing certificate: Only needed if it’s missing from your metadata file.
+After you've collected this information, share it with your Addepar representative so we can set up a secure connection on our end. It typically takes a few business days to establish a connection. We'll let you know when it's ready to go. 
+
+
+
+
+Require SSO 
+Once SSO is set up for your firm, users and contacts can sign in using either SSO or their Addepar credentials. If you want users to use SSO exclusively, you can require that for individual users and/or contacts. 
+
+For users, you’ll need to delete the user and recreate them choosing SSO as the login method. If a user has personal views saved, we recommend saving them as firm or team views so you don’t lose them when deleting the user. 
+
+To require SSO for users: 
+
+Go to Firm Administration > Users> select user > click Delete. 
+From User Permissions, click +Create User > enter the user’s information.
+Next to Login Method, choose SAML Single Sign On > enter the user’s ID (the email address or custom SAML ID they’ll use to sign in). 
+Click Create User.
+For contacts, you’ll also need to delete and recreate them choosing SSO as the login method. The only caveat to this is if the contact never set up a password. In that case, you don't need to delete and recreate them. 
+
+To require SSO for contacts: 
+
+Go to Analysis & Reporting > select a contact > click the gear icon under Contact Information > click Delete contact. 
+From Analysis & Reporting > click +Create at the top of your screen > select Contact > enter a name and email > click Create. 
+On the contact’s details page, under Access to Client Portal, click the gear icon > click Enable single sign-on.
+Click Enable.
+The next time these users and/or contacts try to sign in to Addepar, they’ll be prompted to use SSO.
+
+
+Troubleshooting 
+Prompted with a password 
+
+If a user is prompted to enter a password when signing in to Addepar, verify they have SSO enabled. 
+If they don't have SSO enabled: 
+
+Delete and recreate the user with SSO as their login method. 
+If they do have SSO enabled: 
+
+Double-check that SP-initiated SSO was requested during the connection process. 
+Make sure SP-initiated SSO users are first signing in through your firm's Addepar URL (https://<firm>.addepar.com/).
+Confirm that the user isn't using a bookmarked or temporary URL on https://id.addepar.com/, as neither will work. 
+If these don't help, contact your Addepar representative so we can investigate further. 
+
+ 
+
+Error message 
+
+If users encounter an error message when signing in to Addepar, send your Addepar representative or Addepar Support a screenshot of the following: 
+
+The full error message, including any reference codes, as that will help us determine the underlying cause.  
+A timestamp of the sign-in attempt. 
+The full URL, as shown in the browser.
+ 
+
+SSO_FAILURE message 
+
+If a user’s credentials cannot be verified during the SSO process, they’ll see an SSO_FAILURE error message. Double-check that SSO is set up for your firm and enabled for this user. 
+
+To see if SSO is set up for a user: 
+
+Go to Firm Administration > Users. 
+Search for the desired user. 
+Under the 2FA column, you'll see SSO if it's enabled for them.
+To see if SSO is set up for a contact: 
+
+Go to Analysis & Reporting > select a contact. 
+Under Access to Client Portal, click the gear icon. 
+If you see "Disable single sign-on," then SSO is enabled. 
