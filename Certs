@@ -1,0 +1,112 @@
+pipeline {
+    agent any
+
+    environment {
+        EXPIRY_THRESHOLD = 30
+        DOMAIN_LIST = "google.com:443 yahoo.com:443 yourdomain.com:443"
+        EMAIL_TO = "yourteam@yourcompany.com"
+    }
+
+    stages {
+        stage('Check OpenSSL Availability') {
+            steps {
+                script {
+                    def opensslAvailable = sh(script: 'which openssl', returnStatus: true) == 0
+                    if (!opensslAvailable) {
+                        error "❌ OpenSSL is not installed on the Jenkins agent."
+                    } else {
+                        echo "✅ OpenSSL is installed."
+                    }
+                }
+            }
+        }
+
+        stage('Check Certificate Expiry') {
+            steps {
+                script {
+                    def today = new Date()
+                    def htmlRows = ""
+                    def warningCount = 0
+
+                    DOMAIN_LIST.split().each { entry ->
+                        def (host, port) = entry.split(":")
+                        echo "🔍 Checking certificate for ${host}:${port}"
+
+                        def output = sh(
+                            script: "echo | openssl s_client -servername $host -connect $host:$port 2>/dev/null | openssl x509 -noout -enddate",
+                            returnStdout: true
+                        ).trim()
+
+                        def match = output =~ /notAfter=(.*)/
+                        if (match) {
+                            def expiryDate = parseExpiryDate(match[0][1])
+                            def daysRemaining = ((expiryDate.time - today.time) / (1000 * 60 * 60 * 24)).toInteger()
+
+                            def rowColor = (daysRemaining <= EXPIRY_THRESHOLD.toInteger()) ? "#ffcccc" : "#ccffcc"
+                            if (daysRemaining <= EXPIRY_THRESHOLD.toInteger()) {
+                                warningCount++
+                            }
+
+                            htmlRows += """
+                                <tr style="background-color:${rowColor}">
+                                  <td>${host}</td>
+                                  <td>${port}</td>
+                                  <td>${expiryDate}</td>
+                                  <td>${daysRemaining}</td>
+                                </tr>
+                            """
+                        } else {
+                            htmlRows += """
+                                <tr style="background-color:#ffcccc">
+                                  <td>${host}</td>
+                                  <td>${port}</td>
+                                  <td colspan="2">❌ Could not fetch certificate</td>
+                                </tr>
+                            """
+                            warningCount++
+                        }
+                    }
+
+                    def htmlReport = """
+                        <html>
+                          <body>
+                            <h2>SSL Certificate Expiry Report</h2>
+                            <table border="1" cellpadding="5" cellspacing="0">
+                              <tr>
+                                <th>Host</th>
+                                <th>Port</th>
+                                <th>Expiry Date</th>
+                                <th>Days Left</th>
+                              </tr>
+                              ${htmlRows}
+                            </table>
+                          </body>
+                        </html>
+                    """
+
+                    writeFile file: 'cert_expiry_report.html', text: htmlReport
+                    archiveArtifacts artifacts: 'cert_expiry_report.html'
+
+                    if (warningCount > 0) {
+                        currentBuild.result = 'UNSTABLE'
+                    }
+
+                    emailext(
+                        subject: "🔒 SSL Cert Expiry Report – ${currentBuild.result}",
+                        body: htmlReport,
+                        mimeType: 'text/html',
+                        to: "${EMAIL_TO}",
+                        attachLog: false,
+                        attachmentsPattern: 'cert_expiry_report.html'
+                    )
+                }
+            }
+        }
+    }
+}
+
+@NonCPS
+def parseExpiryDate(String dateStr) {
+    def sdf = new java.text.SimpleDateFormat("EEE MMM dd HH:mm:ss z yyyy", java.util.Locale.US)
+    return sdf.parse(dateStr)
+}
