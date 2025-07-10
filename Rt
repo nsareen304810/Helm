@@ -1,0 +1,16 @@
+def certBlock = sh(
+    script: "echo | openssl s_client -servername $host -connect $host:$port 2>/dev/null | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p'",
+    returnStdout: true
+).trim()
+
+if (certBlock?.contains("BEGIN CERTIFICATE")) {
+    def certInfo = sh(
+        script: "echo '${certBlock}' | openssl x509 -noout -enddate",
+        returnStdout: true
+    ).trim()
+    
+    // Continue with parsing certInfo...
+} else {
+    echo "❌ No certificate found for ${host}:${port} — skipping"
+    certInfo = "notAfter=INVALID"
+}
