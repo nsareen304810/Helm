@@ -37,16 +37,19 @@ pipeline {
                         def (host, port) = entry.split(":")
                         echo "🔍 Checking certificate for ${host}:${port}"
 
+                        // Get certificate end date string
                         def certInfo = sh(
                             script: "echo | openssl s_client -servername $host -connect $host:$port 2>/dev/null | openssl x509 -noout -enddate",
                             returnStdout: true
                         ).trim()
 
-                        def match = certInfo =~ /notAfter=(.*)/
-                        if (match) {
-                            def rawDate = match[0][1].trim()
+                        // Extract date from notAfter field using grep instead of Groovy regex
+                        def rawDate = sh(
+                            script: "echo '${certInfo}' | grep -oP 'notAfter=\\K.*'",
+                            returnStdout: true
+                        ).trim()
 
-                            // Convert date to epoch (sandbox-safe)
+                        if (rawDate) {
                             def expiryEpoch = sh(
                                 script: "date -d '${rawDate}' +%s",
                                 returnStdout: true
@@ -78,7 +81,7 @@ pipeline {
                         }
                     }
 
-                    // Generate full HTML report
+                    // Final HTML report
                     def htmlReport = """
                         <html>
                           <body>
@@ -96,7 +99,6 @@ pipeline {
                         </html>
                     """
 
-                    // Write and archive the report
                     writeFile file: 'cert_expiry_report.html', text: htmlReport
                     archiveArtifacts artifacts: 'cert_expiry_report.html'
 
@@ -104,7 +106,6 @@ pipeline {
                         currentBuild.result = 'UNSTABLE'
                     }
 
-                    // Send email with HTML body and attachment
                     emailext(
                         subject: "🔒 SSL Certificate Expiry Report – ${currentBuild.result}",
                         body: htmlReport,
