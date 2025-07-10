@@ -2,25 +2,39 @@ pipeline {
     agent any
 
     environment {
-        // Number of days before expiry to raise a warning
         EXPIRY_THRESHOLD = 30
-
-        // List of domains to check (use host:port format)
-        DOMAIN_LIST = "google.com:443 yahoo.com:443 yourdomain.com:443"
-
-        // Email address to send the report
+        CONFLUENCE_URL = "https://yourcompany.atlassian.net/wiki/rest/api/content/12345678?expand=body.storage"
+        CONFLUENCE_USER = credentials('confluence-user') // Jenkins credential (username:token)
         EMAIL_TO = "yourteam@yourcompany.com"
+        JIRA_SITE = 'your-jira-site' // Define this in Jenkins > Configure System > JIRA Integration
     }
 
     stages {
+        stage('Fetch Domains from Confluence') {
+            steps {
+                script {
+                    def rawJson = sh(
+                        script: "curl -s -u ${CONFLUENCE_USER} \"${CONFLUENCE_URL}\"",
+                        returnStdout: true
+                    ).trim()
+
+                    def domainList = rawJson =~ /([\\w\\.-]+:\\d{2,5})/
+                    if (!domainList) {
+                        error "❌ No domains found in Confluence content"
+                    }
+
+                    env.DOMAIN_LIST = domainList.collect { it[1] }.join(" ")
+                    echo "✅ Loaded domain list from Confluence: ${env.DOMAIN_LIST}"
+                }
+            }
+        }
+
         stage('Check OpenSSL Availability') {
             steps {
                 script {
                     def opensslAvailable = sh(script: 'which openssl', returnStatus: true) == 0
                     if (!opensslAvailable) {
-                        error "❌ OpenSSL is not installed on the Jenkins agent. Please install it."
-                    } else {
-                        echo "✅ OpenSSL is available."
+                        error "❌ OpenSSL is not installed on the Jenkins agent."
                     }
                 }
             }
@@ -31,34 +45,30 @@ pipeline {
                 script {
                     def htmlRows = ""
                     def warningCount = 0
+                    def warningHosts = []
                     def currentEpoch = (System.currentTimeMillis() / 1000).toLong()
 
-                    DOMAIN_LIST.split().each { entry ->
+                    env.DOMAIN_LIST.split().each { entry ->
                         def (host, port) = entry.split(":")
                         echo "🔍 Checking certificate for ${host}:${port}"
 
-                        // Get certificate end date string
                         def certInfo = sh(
                             script: "echo | openssl s_client -servername $host -connect $host:$port 2>/dev/null | openssl x509 -noout -enddate",
                             returnStdout: true
                         ).trim()
 
-                        // Extract date from notAfter field using grep instead of Groovy regex
                         def rawDate = sh(
                             script: "echo '${certInfo}' | grep -oP 'notAfter=\\K.*'",
                             returnStdout: true
                         ).trim()
 
                         if (rawDate) {
-                            def expiryEpoch = sh(
-                                script: "date -d '${rawDate}' +%s",
-                                returnStdout: true
-                            ).trim().toLong()
-
+                            def expiryEpoch = sh(script: "date -d '${rawDate}' +%s", returnStdout: true).trim().toLong()
                             def daysRemaining = ((expiryEpoch - currentEpoch) / 86400).toInteger()
                             def rowColor = (daysRemaining <= EXPIRY_THRESHOLD.toInteger()) ? "#ffcccc" : "#ccffcc"
                             if (daysRemaining <= EXPIRY_THRESHOLD.toInteger()) {
                                 warningCount++
+                                warningHosts << "${host}:${port} - ${rawDate} (${daysRemaining} days left)"
                             }
 
                             htmlRows += """
@@ -78,10 +88,10 @@ pipeline {
                                 </tr>
                             """
                             warningCount++
+                            warningHosts << "${host}:${port} - FAILED"
                         }
                     }
 
-                    // Final HTML report
                     def htmlReport = """
                         <html>
                           <body>
@@ -104,6 +114,15 @@ pipeline {
 
                     if (warningCount > 0) {
                         currentBuild.result = 'UNSTABLE'
+
+                        def summary = warningHosts.join("\\n")
+
+                        jiraNewIssue site: env.JIRA_SITE,
+                                     projectKey: 'DEVOPS-CERTS',
+                                     issueType: 'Task',
+                                     summary: "⚠️ SSL Certificate(s) Expiring Soon – ${warningCount} host(s)",
+                                     description: "The following certificate(s) are expiring soon or could not be verified:\\n\\n${summary}\\n\\nPlease review the attached HTML report.",
+                                     filePath: 'cert_expiry_report.html'
                     }
 
                     emailext(
