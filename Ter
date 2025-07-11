@@ -2,41 +2,38 @@ pipeline {
     agent any
 
     environment {
-        PROXY_HOST = "proxy.bbh.com"
-        PROXY_PORT = "8080"
         DOMAIN = "creditscope.bbh.com"
         PORT = "443"
+        PROXY = "tstproxy.bbh.com:9090"
+        PROXY_USER = "yourProxyUser"
+        PROXY_PASS = "yourSecretPassword"
         EXPIRY_THRESHOLD = 30
     }
 
     stages {
-        stage('Check Certificate Expiry via Proxy') {
+        stage('Check SSL Expiry via Proxy') {
             steps {
                 script {
-                    def expiry = sh(
-                        script: """
-                            ncat --proxy \$PROXY_HOST:\$PROXY_PORT --proxy-type http \$DOMAIN \$PORT < /dev/null | \
-                            openssl s_client -servername \$DOMAIN -connect \$DOMAIN:\$PORT 2>/dev/null | \
-                            openssl x509 -noout -enddate
-                        """,
-                        returnStdout: true
-                    ).trim()
+                    def expiry = sh(script: """
+                        curl -Iv https://$DOMAIN \
+                          --proxy http://$PROXY_USER:$PROXY_PASS@$PROXY 2>&1 | grep -i 'expire' || true
+                    """, returnStdout: true).trim()
 
                     echo "📅 Raw Expiry Output: $expiry"
 
-                    if (expiry.startsWith("notAfter=")) {
-                        def expiryDate = expiry.replace("notAfter=", "").trim()
+                    def expiryDate = expiry.find(/expire date: (.*)/) { _, date -> return date }?.trim()
+                    if (expiryDate) {
                         def expiryEpoch = sh(script: "date -d '$expiryDate' +%s", returnStdout: true).trim().toLong()
                         def nowEpoch = sh(script: "date +%s", returnStdout: true).trim().toLong()
                         def daysLeft = ((expiryEpoch - nowEpoch) / 86400).toInteger()
 
-                        echo "🔒 SSL Certificate for $DOMAIN expires in $daysLeft days"
+                        echo "🔒 Certificate for $DOMAIN expires in $daysLeft days"
 
                         if (daysLeft <= EXPIRY_THRESHOLD.toInteger()) {
-                            error "❌ Certificate for $DOMAIN expiring in $daysLeft days!"
+                            error "❌ Certificate is expiring in $daysLeft days!"
                         }
                     } else {
-                        error "❌ Could not retrieve certificate expiry information."
+                        error "❌ Failed to retrieve expiry date."
                     }
                 }
             }
