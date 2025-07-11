@@ -2,39 +2,81 @@ pipeline {
     agent any
 
     environment {
-        DOMAIN = "creditscope.bbh.com"
-        PORT = "443"
+        DOMAIN_LIST = "creditscope.bbh.com:443 google.com:443"
         PROXY = "tstproxy.bbh.com:9090"
         PROXY_USER = "yourProxyUser"
-        PROXY_PASS = "yourSecretPassword"
+        PROXY_PASS = "yourProxyPass"
         EXPIRY_THRESHOLD = 30
+        EMAIL_RECIPIENTS = "yourteam@yourcompany.com"
+        REPORT_FILE = "cert_report.html"
     }
 
     stages {
-        stage('Check SSL Expiry via Proxy') {
+        stage('Check Certificates') {
             steps {
                 script {
-                    def expiry = sh(script: """
-                        curl -Iv https://$DOMAIN \
-                          --proxy http://$PROXY_USER:$PROXY_PASS@$PROXY 2>&1 | grep -i 'expire' || true
-                    """, returnStdout: true).trim()
+                    def html = """
+                    <html><head><style>
+                    body { font-family: Arial; }
+                    table { border-collapse: collapse; width: 100%; }
+                    th, td { border: 1px solid #ccc; padding: 8px; text-align: left; }
+                    th { background-color: #f2f2f2; }
+                    </style></head><body>
+                    <h2>SSL Certificate Expiry Report</h2>
+                    <table>
+                    <tr><th>Domain</th><th>Expiry Date</th><th>Days Left</th><th>Status</th></tr>
+                    """
 
-                    echo "📅 Raw Expiry Output: $expiry"
+                    def domains = DOMAIN_LIST.split()
+                    def anyExpiring = false
 
-                    def expiryDate = expiry.find(/expire date: (.*)/) { _, date -> return date }?.trim()
-                    if (expiryDate) {
-                        def expiryEpoch = sh(script: "date -d '$expiryDate' +%s", returnStdout: true).trim().toLong()
-                        def nowEpoch = sh(script: "date +%s", returnStdout: true).trim().toLong()
-                        def daysLeft = ((expiryEpoch - nowEpoch) / 86400).toInteger()
+                    domains.each { domainEntry ->
+                        def domain = domainEntry.split(":")[0]
+                        def port = domainEntry.split(":")[1]
 
-                        echo "🔒 Certificate for $DOMAIN expires in $daysLeft days"
+                        echo "🔍 Checking $domain:$port"
 
-                        if (daysLeft <= EXPIRY_THRESHOLD.toInteger()) {
-                            error "❌ Certificate is expiring in $daysLeft days!"
+                        def output = sh(
+                            script: """curl -Iv https://$domain:$port --proxy http://$PROXY_USER:$PROXY_PASS@$PROXY 2>&1 || true""",
+                            returnStdout: true
+                        ).trim()
+
+                        def line = output.readLines().find { it.toLowerCase().contains("expire date") }
+
+                        if (line) {
+                            def expiryDate = line.tokenize(": ")[-1].trim()
+                            def expiryEpoch = sh(script: "date -d '$expiryDate' +%s", returnStdout: true).trim().toLong()
+                            def nowEpoch = sh(script: "date +%s", returnStdout: true).trim().toLong()
+                            def daysLeft = ((expiryEpoch - nowEpoch) / 86400).toInteger()
+                            def status = daysLeft <= EXPIRY_THRESHOLD.toInteger() ? "⚠️ Expiring Soon" : "✅ OK"
+
+                            if (daysLeft <= EXPIRY_THRESHOLD.toInteger()) {
+                                anyExpiring = true
+                            }
+
+                            html += "<tr><td>$domain:$port</td><td>$expiryDate</td><td>$daysLeft</td><td>$status</td></tr>"
+                        } else {
+                            html += "<tr><td>$domain:$port</td><td colspan='3'>❌ Failed to retrieve</td></tr>"
                         }
-                    } else {
-                        error "❌ Failed to retrieve expiry date."
                     }
+
+                    html += "</table></body></html>"
+
+                    writeFile file: REPORT_FILE, text: html
+                }
+            }
+        }
+
+        stage('Send Email') {
+            steps {
+                script {
+                    emailext (
+                        subject: "🔐 SSL Certificate Expiry Report",
+                        body: "Please find attached the latest certificate expiry report.",
+                        to: "${EMAIL_RECIPIENTS}",
+                        attachmentsPattern: REPORT_FILE,
+                        mimeType: 'text/html'
+                    )
                 }
             }
         }
