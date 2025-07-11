@@ -1,0 +1,45 @@
+pipeline {
+    agent any
+
+    environment {
+        PROXY_HOST = "proxy.bbh.com"
+        PROXY_PORT = "8080"
+        DOMAIN = "creditscope.bbh.com"
+        PORT = "443"
+        EXPIRY_THRESHOLD = 30
+    }
+
+    stages {
+        stage('Check Certificate Expiry via Proxy') {
+            steps {
+                script {
+                    def expiry = sh(
+                        script: """
+                            ncat --proxy \$PROXY_HOST:\$PROXY_PORT --proxy-type http \$DOMAIN \$PORT < /dev/null | \
+                            openssl s_client -servername \$DOMAIN -connect \$DOMAIN:\$PORT 2>/dev/null | \
+                            openssl x509 -noout -enddate
+                        """,
+                        returnStdout: true
+                    ).trim()
+
+                    echo "📅 Raw Expiry Output: $expiry"
+
+                    if (expiry.startsWith("notAfter=")) {
+                        def expiryDate = expiry.replace("notAfter=", "").trim()
+                        def expiryEpoch = sh(script: "date -d '$expiryDate' +%s", returnStdout: true).trim().toLong()
+                        def nowEpoch = sh(script: "date +%s", returnStdout: true).trim().toLong()
+                        def daysLeft = ((expiryEpoch - nowEpoch) / 86400).toInteger()
+
+                        echo "🔒 SSL Certificate for $DOMAIN expires in $daysLeft days"
+
+                        if (daysLeft <= EXPIRY_THRESHOLD.toInteger()) {
+                            error "❌ Certificate for $DOMAIN expiring in $daysLeft days!"
+                        }
+                    } else {
+                        error "❌ Could not retrieve certificate expiry information."
+                    }
+                }
+            }
+        }
+    }
+}
